@@ -339,8 +339,8 @@
 
     .task-row{
       display:grid;
-      grid-template-columns:auto 1fr auto;
-      gap:10px;
+      grid-template-columns:1fr auto;
+      gap:12px;
       align-items:center;
       padding:9px 10px;
       border:1px solid var(--line);
@@ -348,10 +348,68 @@
       background:#fff;
     }
 
-    .task-row input{
-      width:18px;
-      height:18px;
-      cursor:pointer;
+
+    .task-row.cancelled{
+      background:#f6f7f9;
+      border-style:dashed;
+      color:var(--muted);
+    }
+
+    .task-row.cancelled .cancelled-task-text{
+      color:#7b8794;
+      text-decoration:line-through;
+      text-decoration-thickness:1px;
+    }
+
+    .cancelled-badge{
+      display:inline-flex;
+      align-items:center;
+      justify-content:center;
+      min-width:82px;
+      height:32px;
+      padding:0 10px;
+      border-radius:8px;
+      background:#e9edf2;
+      color:#667085 !important;
+      font-size:11px !important;
+      font-weight:700;
+      letter-spacing:.04em;
+    }
+
+    .task-progress-input{
+      width:82px;
+      height:38px;
+      border:1px solid #cbd7e6;
+      border-radius:8px;
+      padding:0 24px 0 10px;
+      text-align:right;
+      font-size:13px;
+      font-weight:700;
+      color:var(--navy);
+      background:#f8fafc;
+      outline:none;
+    }
+
+    .task-progress-input:focus{
+      border-color:var(--blue);
+      box-shadow:0 0 0 3px rgba(31,111,235,.12);
+      background:white;
+    }
+
+    .task-progress-control{
+      position:relative;
+      display:flex;
+      align-items:center;
+    }
+
+    .task-progress-control::after{
+      content:"%";
+      position:absolute;
+      right:9px;
+      color:var(--muted);
+      font-size:12px;
+      font-weight:700;
+      pointer-events:none;
     }
 
     .task-row span{
@@ -404,6 +462,36 @@
 
     .toolbar .danger{color:#b42318}
 
+    .toolbar .save-button{
+      background:var(--navy);
+      color:white;
+      border-color:var(--navy);
+      padding-inline:16px;
+    }
+
+    .save-status{
+      position:fixed;
+      right:24px;
+      bottom:24px;
+      z-index:1000;
+      background:#10243e;
+      color:white;
+      border-radius:10px;
+      padding:11px 15px;
+      box-shadow:0 10px 28px rgba(16,36,62,.22);
+      font-size:13px;
+      font-weight:600;
+      opacity:0;
+      transform:translateY(10px);
+      pointer-events:none;
+      transition:.2s ease;
+    }
+
+    .save-status.show{
+      opacity:1;
+      transform:translateY(0);
+    }
+
     
     h1,
     .stage-main strong,
@@ -443,8 +531,7 @@
       .stage-progress{grid-column:1 / 3}
       .sprint-head{grid-template-columns:auto 1fr auto}
       .mini-chevron{grid-column:3}
-      .task-row{grid-template-columns:auto 1fr}
-      .task-row strong{grid-column:2}
+      .task-row{grid-template-columns:1fr auto}
     }
   
 .logo-row{
@@ -571,9 +658,12 @@ font-weight:600;
     <div class="toolbar">
       <button onclick="openStages()">Abrir etapas</button>
       <button onclick="closeStages()">Cerrar etapas</button>
-      <button class="danger" onclick="resetProgress()">Reiniciar avance</button>
+      <button class="danger" onclick="clearProgress()">Limpiar avance</button>
+      <button class="save-button" onclick="saveProgress(true)">💾 Guardar cambios</button>
     </div>
   </main>
+
+  <div class="save-status" id="saveStatus">Cambios guardados correctamente</div>
 
   <script>
     const STORAGE_KEY = 'segrup-roadmap-task-progress-v2';
@@ -607,7 +697,7 @@ font-weight:600;
               'Sincronización de inventario.',
               'Pruebas con datos reales.'
             ],
-            result: 'Información sincronizada sin doble carga manual.'
+            result: 'Consumibles e inventario permanecen gestionados exclusivamente en AIPEM.'
           },
           {
             id: 3,
@@ -728,18 +818,46 @@ font-weight:600;
                 <div class="box">
                   <h4>Qué se realiza</h4>
                   <div class="task-list">
-                    ${sprint.tasks.map((task, index) => `
-                      <label class="task-row">
-                        <input
-                          type="checkbox"
-                          data-sprint="${sprint.id}"
-                          data-task="${index}"
-                          ${saved[sprint.id]?.includes(index) ? 'checked' : ''}
-                        />
-                        <span>${task}</span>
-                        <strong>${Math.round(100 / sprint.tasks.length)}%</strong>
-                      </label>
-                    `).join('')}
+                    ${sprint.tasks.map((task, index) => {
+                      const isCancelled = sprint.id === 2 && [
+                        'Sincronización de consumibles.',
+                        'Sincronización de inventario.'
+                      ].includes(task);
+
+                      if(isCancelled){
+                        return `
+                          <div class="task-row cancelled">
+                            <span class="cancelled-task-text">${task}</span>
+                            <span class="cancelled-badge">ANULADO</span>
+                          </div>
+                        `;
+                      }
+
+                      const previous = saved[sprint.id];
+                      const savedValue = Array.isArray(previous)
+                        ? (previous.includes(index) ? 100 : 0)
+                        : Number(previous?.[index] ?? 0);
+
+                      return `
+                        <div class="task-row">
+                          <span>${task}</span>
+                          <span class="task-progress-control">
+                            <input
+                              class="task-progress-input"
+                              type="number"
+                              min="0"
+                              max="100"
+                              step="1"
+                              inputmode="numeric"
+                              aria-label="Avance de ${task}"
+                              data-sprint="${sprint.id}"
+                              data-task="${index}"
+                              value="${Math.max(0, Math.min(100, savedValue))}"
+                            />
+                          </span>
+                        </div>
+                      `;
+                    }).join('')}
                   </div>
                 </div>
                 <div class="result">${sprint.result}</div>
@@ -787,7 +905,7 @@ font-weight:600;
 
     const stages = document.querySelectorAll('.stage');
     const sprints = document.querySelectorAll('.sprint');
-    const taskInputs = document.querySelectorAll('.task-row input');
+    const taskInputs = document.querySelectorAll('.task-progress-input');
 
     stages.forEach(stage => {
       const button = stage.querySelector(':scope > .stage-button');
@@ -806,44 +924,59 @@ font-weight:600;
     });
 
     taskInputs.forEach(input => {
-      input.addEventListener('change', () => {
-        saveProgress();
+      const normalizeAndRefresh = () => {
+        const value = Math.max(0, Math.min(100, Number(input.value) || 0));
+        input.value = Math.round(value);
         updateProgress();
-      });
+      };
+
+      input.addEventListener('input', normalizeAndRefresh);
+      input.addEventListener('change', normalizeAndRefresh);
+      input.addEventListener('click', event => event.stopPropagation());
     });
 
-    function saveProgress(){
+    function saveProgress(showConfirmation = false){
       const data = {};
       sprints.forEach(sprint => {
         const id = sprint.dataset.sprint;
-        data[id] = [...sprint.querySelectorAll('.task-row input:checked')]
-          .map(input => Number(input.dataset.task));
+        data[id] = {};
+        sprint.querySelectorAll('.task-progress-input').forEach(input => {
+          data[id][input.dataset.task] = Math.max(0, Math.min(100, Number(input.value) || 0));
+        });
       });
       localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
+      if(showConfirmation) showSaveStatus();
+    }
+
+    function showSaveStatus(){
+      const status = document.getElementById('saveStatus');
+      status.classList.add('show');
+      clearTimeout(window.saveStatusTimer);
+      window.saveStatusTimer = setTimeout(() => status.classList.remove('show'), 2200);
+    }
+
+    function averageProgress(container){
+      const inputs = [...container.querySelectorAll('.task-progress-input')];
+      if(!inputs.length) return 0;
+      const total = inputs.reduce((sum, input) => {
+        return sum + Math.max(0, Math.min(100, Number(input.value) || 0));
+      }, 0);
+      return Math.round(total / inputs.length);
     }
 
     function updateProgress(){
-      let completedTasks = 0;
-      let totalTasks = 0;
-
       sprints.forEach(sprint => {
-        const all = sprint.querySelectorAll('.task-row input').length;
-        const done = sprint.querySelectorAll('.task-row input:checked').length;
-        const percent = all ? Math.round((done / all) * 100) : 0;
+        const percent = averageProgress(sprint);
         sprint.querySelector('.sprint-percent').textContent = percent + '%';
-        completedTasks += done;
-        totalTasks += all;
       });
 
       stages.forEach(stage => {
-        const all = stage.querySelectorAll('.task-row input').length;
-        const done = stage.querySelectorAll('.task-row input:checked').length;
-        const percent = all ? Math.round((done / all) * 100) : 0;
+        const percent = averageProgress(stage);
         stage.querySelector('.stage-percent').textContent = percent + '%';
         stage.querySelector('.stage-bar').style.width = percent + '%';
       });
 
-      const totalPercent = totalTasks ? Math.round((completedTasks / totalTasks) * 100) : 0;
+      const totalPercent = averageProgress(document);
       document.getElementById('overallPercent').textContent = totalPercent + '%';
       document.getElementById('overallBar').style.width = totalPercent + '%';
     }
@@ -857,10 +990,9 @@ font-weight:600;
       sprints.forEach(sprint => sprint.classList.remove('open'));
     }
 
-    function resetProgress(){
-      if(!confirm('¿Reiniciar todo el avance del proyecto?')) return;
-      localStorage.removeItem(STORAGE_KEY);
-      taskInputs.forEach(input => input.checked = false);
+    function clearProgress(){
+      if(!confirm('¿Limpiar todo el avance cargado? Los valores en cero se guardarán únicamente cuando presiones “Guardar cambios”.')) return;
+      taskInputs.forEach(input => input.value = 0);
       updateProgress();
     }
 
